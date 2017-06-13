@@ -3,6 +3,7 @@ package extractor;
 import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -61,7 +62,7 @@ public class ExtractActions {
 				Util.getPropertyNotNull(props, "ea_max_num_extras_to_remove"));
 		
 		LOGGER.info("Opening and checking folders");
-		final File replayFolder = new File(replayFolderName);
+        final File replayFolder = new File(replayFolderName);
 		if (!replayFolder.canRead()) {
 			throw new IOException("Cannot read '" + replayFolder.getAbsolutePath() + "'");
 		}
@@ -364,8 +365,7 @@ public class ExtractActions {
 				data.add(replayId);
 				// Getting StartLocations and BuildTiles from BWAPI instead of the replay
 				// so don't include StartPositionId here
-				
-				long playerReplayId = dbc.executeInsert(
+                long playerReplayId = dbc.executeInsert(
 						"INSERT INTO playerreplay (playername, winner, raceid, replayid)"
 								+ " VALUES (?, ?, ?, ?)", data, true);
 				if (playerReplayId == -1) {

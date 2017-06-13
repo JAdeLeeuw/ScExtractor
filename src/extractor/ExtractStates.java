@@ -179,7 +179,7 @@ public class ExtractStates implements BWAPIEventListener {
 	public void matchFrame() {
 		// Debug draw terrain
 		if (debugDrawTerrain) {
-			bwapi.getMap().drawTerrainData(bwapi);
+			bwapi.getMap().drawTerrainData();
 		}
 		// Debug draw region IDs (very slow)
 		if (debugDrawRegionIds) {

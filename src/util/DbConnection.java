@@ -21,7 +21,7 @@ public class DbConnection implements AutoCloseable {
 	private static final Logger LOGGER = Logger.getLogger(DbConnection.class.getName());
 
 	/** Properties file to load */
-	private static final String PROPERTIES_FILENAME = "databaseConfig.properties";
+	private static final String PROPERTIES_FILENAME = "extractorConfig.properties";
 	/** Whether to prevent the program from performing changes to the DB (eg. insert, delete) */
 	private final boolean debugMode;
 
@@ -42,7 +42,7 @@ public class DbConnection implements AutoCloseable {
 		if (debugMode) {
 			LOGGER.warning("DATABASE DEBUG MODE ACTIVE");
 		}
-		
+
 		con = DriverManager.getConnection(dbUrl, dbUser, dbPw);
 		Statement st = con.createStatement();
 		// Switch to the chosen DB
@@ -67,7 +67,7 @@ public class DbConnection implements AutoCloseable {
 	
 	public ResultSet executeQuery(String sql, List<? extends Object> data) throws SQLException {
 		PreparedStatement ps = prepare(sql, data);
-		return ps.executeQuery();
+  		return ps.executeQuery();
 	}
 	
 	/** Execute the query and return the value of the first column (usually the ID) as a long. */

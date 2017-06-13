@@ -805,7 +805,7 @@ public class BinRepParser {
 				// System.out.println("!!!!!!!!!Re default" + + blockId + " " + frame);
 				skipBytes = commandBlocksEndPos - commandsBuffer.position();
 				// System.out.println(frame + " Skiped " + skipBytes + " Caused by id[" + blockId+
-				// "]  ÄÄÄÄHH" );
+				// "]  HH" );
 				
 				break;
 			}

@@ -1,8 +1,6 @@
 package extractor;
 
-import java.io.File;
-import java.io.FilenameFilter;
-import java.io.IOException;
+import java.io.*;
 import java.nio.file.Paths;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -14,6 +12,7 @@ import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import com.opencsv.CSVWriter;
 import replayparser.control.BinRepParser;
 import replayparser.model.Player;
 import replayparser.model.RPAction;
@@ -21,12 +20,13 @@ import replayparser.model.RPAction.ReplayActions;
 import replayparser.model.Replay;
 import util.DbConnection;
 import util.LogManager;
+import util.UnitGroup;
 import util.Util;
 
 /**
  * A Java BWAPI client which extracts actions from replays directly (using ReplayParser) and
  * extracts States via BWAPI. Stores the output in a database.
- * 
+ *
  * @author Glen Robertson
  */
 public class ExtractActions {
@@ -39,9 +39,9 @@ public class ExtractActions {
 	private final String firstToParse; // eg. GG14816.rep
 	/** The maximum number of extra/orphaned database entries to remove from one cleanup action */
 	private final int maxNumExtrasToRemove;
-	
+
 	private final File[] replays;
-	
+
 	public static void main(String[] args) {
 		// Start the logger
 		LogManager.initialise("ExtractActions");
@@ -52,7 +52,7 @@ public class ExtractActions {
 			LOGGER.log(Level.SEVERE, e.getMessage(), e);
 		}
 	}
-	
+
 	/** Instantiates the Extractor */
 	public ExtractActions() throws IOException {
 		Properties props = Util.loadProperties(PROPERTIES_FILENAME);
@@ -60,7 +60,7 @@ public class ExtractActions {
 		firstToParse = Util.getPropertyNotNull(props, "ea_first_to_parse");
 		maxNumExtrasToRemove = Integer.parseInt(
 				Util.getPropertyNotNull(props, "ea_max_num_extras_to_remove"));
-		
+
 		LOGGER.info("Opening and checking folders");
         final File replayFolder = new File(replayFolderName);
 		if (!replayFolder.canRead()) {
@@ -80,7 +80,7 @@ public class ExtractActions {
 					+ "' contains no .rep files.");
 		}
 	}
-	
+
 	/** Start the Extractor. This returns only once finished. */
 	public void start() throws IOException, SQLException {
 		DbConnection dbc = new DbConnection();
@@ -108,7 +108,7 @@ public class ExtractActions {
 				removeNonBwapiActions(replay);
 				// Remove selects again now that more actions are removed
 				removeExtraSelects(replay);
-				storeToDatabase(dbc, replay, f.getName(), winner);
+				storeToDatabase(replay, f.getName(), winner);
 			} else {
 				LOGGER.warning("The replay '" + f.getAbsolutePath() + "' could not be loaded.");
 			}
@@ -117,7 +117,7 @@ public class ExtractActions {
 		dbc.close();
 		LOGGER.info("Done");
 	}
-	
+
 	/**
 	 * Remove hotkey and extra select actions to simplify the model. After this is run, all hotkey,
 	 * shift-select, and shift-deselect actions will be replaced by regular select actions, and any
@@ -131,7 +131,7 @@ public class ExtractActions {
 			for (int i = 0; i < NUM_CONTROL_GROUPS; i++) {
 				controlGroups.add(new ControlGroup());
 			}
-			
+
 			// For each action
 			int lastFrame = 0;
 			for (int i = 0; i < player.actions.size(); i++) {
@@ -141,7 +141,7 @@ public class ExtractActions {
 					LOGGER.severe("Frames not in order!");
 				}
 				lastFrame = action.frame;
-				
+
 				if (action.rAction == RPAction.ReplayActions.Hotkey) {
 					String[] params = action.stringParams.split(",");
 					if (params.length != 2) {
@@ -204,7 +204,7 @@ public class ExtractActions {
 			}
 		}
 	}
-	
+
 	/**
 	 * Remove sequences of 2+ selects in a row, leaving just the last select in each sequence. These
 	 * repeated select actions cannot have any effect (usually just a result of the player checking
@@ -229,7 +229,7 @@ public class ExtractActions {
 			}
 		}
 	}
-	
+
 	/**
 	 * Assuming a two player game. If there are more than two players, this removes the ones with
 	 * the fewest actions (probably an observer).
@@ -242,12 +242,12 @@ public class ExtractActions {
 			for (Player p : replay.players) {
 				actCounts += p.actions.size() + " ";
 			}
-			
+
 			// Record the maximum action count of removed players, and compare to the minimum
 			// action count of remaining players (safety check)
 			int maxActionsRemoved = 0;
 			int minActionsRemaining = Integer.MAX_VALUE;
-			
+
 			// Find and remove low-action count players until 2 remain
 			while (replay.players.size() > 2) {
 				int minActions = Integer.MAX_VALUE;
@@ -262,14 +262,14 @@ public class ExtractActions {
 				maxActionsRemoved = Math.max(maxActionsRemoved, minActions);
 				LOGGER.fine("Removed: " + minPlayer + " with " + minActions + " actions");
 			}
-			
+
 			// Log outcome when players have been removed
 			String newActCounts = "";
 			for (Player p : replay.players) {
 				newActCounts += p.actions.size() + " ";
 				minActionsRemaining = Math.min(minActionsRemaining, p.actions.size());
 			}
-			
+
 			LOGGER.info("More than 2 players. Removed all but the most active 2\n" +
 					" Action counts: [ " + actCounts + "] => [ " + newActCounts + "]");
 			if (maxActionsRemoved > minActionsRemaining / 2) {
@@ -277,7 +277,7 @@ public class ExtractActions {
 			}
 		}
 	}
-	
+
 	/**
 	 * Returns the winning player in a game, by finding the last player to leave. Notes:
 	 * <ul>
@@ -314,7 +314,7 @@ public class ExtractActions {
 		}
 		return winner;
 	}
-	
+
 	/**
 	 * Remove actions containing ReplayActions (not convertable to BWAPI-compatible actions) except
 	 * SELECT, leaving only BWAPI-compatible actions (Orders, UnitCommands, and SELECT).
@@ -341,8 +341,8 @@ public class ExtractActions {
 			}
 		}
 	}
-	
-	private void storeToDatabase(DbConnection dbc, Replay replay, String fileName, Player winner) {
+
+	private void storeToDatabase(Replay replay, String fileName, Player winner) {
 		try {
 			List<Object> data = new ArrayList<>();
 			Set<Long> allDbPlayerReplayIds = new HashSet<>();
@@ -350,38 +350,59 @@ public class ExtractActions {
 			data.clear();
 			data.add(fileName);
 			data.add(replay.header.gameFrames);
-			long replayId = dbc.executeInsert(
-					"INSERT INTO replay (replayname, duration) VALUES (?, ?)", data, true);
+
+			//Create replay directory
+			String directoryPath = "csv/" + fileName + "/";
+			new File(directoryPath).mkdirs();
+
+			//Create the CSV files
+            File CSVreplay = Paths.get(directoryPath + "/replay.csv").toFile();
+            File CSVaction = Paths.get(directoryPath + "/action.csv").toFile();
+            File CSVplayerreplay = Paths.get(directoryPath + "/playerreplay.csv").toFile();
+            File CSVunit = Paths.get(directoryPath + "/unit.csv").toFile();
+//            File CSVunitgroup = Paths.get(directoryPath + "/unitgroup.csv").toFile();
+
+            CSVreplay.createNewFile();
+            CSVaction.createNewFile();
+            CSVplayerreplay.createNewFile();
+            CSVunit.createNewFile();
+//            CSVunitgroup.createNewFile();
+
+			//Create the CSV file writers
+            CSVWriter replayWriter = new CSVWriter(new FileWriter(CSVreplay));
+            CSVWriter actionWriter = new CSVWriter(new FileWriter(CSVaction));
+            CSVWriter playerreplayWriter = new CSVWriter(new FileWriter(CSVplayerreplay));
+            CSVWriter unitWriter = new CSVWriter(new FileWriter(CSVunit));
+//            CSVWriter unitgroupWriter = new CSVWriter(new FileWriter(CSVunitgroup));
+
+            long replayId = 0;
+            long playerReplayId = 0;
+
+            replayWriter.writeNext(new String[]{fileName, String.valueOf(replay.header.gameFrames)});
+            replayId++;
+
 			// Add PlayerReplay
 			for (Player player : replay.players) {
-				// Store all actionIds for this playerreplay
-				Set<Long> allDbActionIds = new HashSet<>();
-				// Store all unitIds for this playerreplay
-				Set<Long> allDbUnitIds = new HashSet<>();
-				data.clear();
-				data.add(player.name);
-				data.add(player == winner);
-				data.add(player.race);
-				data.add(replayId);
-				// Getting StartLocations and BuildTiles from BWAPI instead of the replay
-				// so don't include StartPositionId here
-                long playerReplayId = dbc.executeInsert(
-						"INSERT INTO playerreplay (playername, winner, raceid, replayid)"
-								+ " VALUES (?, ?, ?, ?)", data, true);
-				if (playerReplayId == -1) {
-					LOGGER.severe("Couldn't get/insert playerreplay: " + Util.join(data));
-					return;
-				}
+//				// Store all actionIds for this playerreplay
+//				Set<Long> allDbActionIds = new HashSet<>();
+//				// Store all unitIds for this playerreplay
+//				Set<Long> allDbUnitIds = new HashSet<>();
+
+                String[] playerreplayData = {player.name, String.valueOf(player == winner), String.valueOf(player.race), String.valueOf(replayId)};
+                playerreplayWriter.writeNext(playerreplayData);
+
+                playerReplayId++;
+
 				allDbPlayerReplayIds.add(playerReplayId);
-				
+
 				long lastSelectedGroupId = -1;
-				
+
 				// Add the player's Actions
 				for (RPAction action : player.actions) {
-					
+
 					// The only ReplayAction at this point should be Select
 					if (action.rAction == ReplayActions.Select) {
-						List<Long> dbUnitIds = new ArrayList<>();
+//						List<Long> dbUnitIds = new ArrayList<>();
 						// Add the action's units
 						for (int repUnitId : action.selectedUnitIds) {
 							data.clear();
@@ -389,60 +410,86 @@ public class ExtractActions {
 							// Getting UnitTypes from BWAPI instead of the replay so leave as
 							// default here (DB will default to UnitTypes.None == 228)
 							data.add(repUnitId);
-							long dbUnitId = dbc.executeInsert("INSERT INTO unit (playerreplayid," +
-									" unitreplayid) VALUES (?, ?)", data, true);
-							dbUnitIds.add(dbUnitId);
+
+							String[] unitData  = {String.valueOf(playerReplayId), String.valueOf(repUnitId)};
+							unitWriter.writeNext(unitData);
+//							dbUnitId++;
+
+//							dbUnitIds.add(dbUnitId);
 						}
-						allDbUnitIds.addAll(dbUnitIds);
-						// Find the group if it exists already
-						// Works by finding a unitgroupid associated with all units in the group
-						// (and no units not in the group, using the "having count" part)
-						// NOTE: Groups can have more than 12 units because if a unit dies it isn't
-						// recorded in the replay, so you can keep adding units to a group as the
-						// old units die off. Groups can also have 0 units (eg. in GG11.rep)
-						data.clear();
-						data.addAll(dbUnitIds);
-						String query = "SELECT unitgroupid FROM unitgroup ";
-						if (dbUnitIds.size() > 0) {
-							query += "WHERE ";
-							for (int i = 0; i < dbUnitIds.size() - 1; i++) {
-								query += "unitid=? OR ";
-							}
-							query += "unitid=? ";
-						}
-						data.add(dbUnitIds.size());
-						query += "GROUP BY unitgroupid HAVING COUNT(unitid)=?";
-						long groupId = dbc.queryFirstColumn(query, data);
-						// Add the group if it wasn't found
-						if (groupId == -1) {
-							for (long dbUnitId : dbUnitIds) {
-								data.clear();
-								if (groupId == -1) {
-									data.add(null);
-								} else {
-									data.add(groupId);
-								}
-								data.add(dbUnitId);
-								groupId = dbc.executeInsert("INSERT INTO unitgroup " +
-										"(unitgroupid, unitid) VALUES (?, ?)", data, false);
-							}
-						}
-						if (groupId == -1) {
-							// Group can't be made, usually because it's empty
-							int num = player.actions.indexOf(action);
-							LOGGER.warning("GroupID was -1 for action #" + num + " of "
-									+ player.actions.size() + " at frame " + action.frame
-									+ " with " + dbUnitIds.size() + " units selected");
-							// Next action will have to reuse previous action's unit group because
-							// database schema doesn't allow actions without a unit group (in
-							// practice this never seems to happen, provided all RPActions are
-							// removed)
-							continue;
-						}
-						
-						// Store the group ID so subsequent actions can refer to it
-						lastSelectedGroupId = groupId;
-						continue;
+//						allDbUnitIds.addAll(dbUnitIds);
+//						// Find the group if it exists already
+//						// Works by finding a unitgroupid associated with all units in the group
+//						// (and no units not in the group, using the "having count" part)
+//						// NOTE: Groups can have more than 12 units because if a unit dies it isn't
+//						// recorded in the replay, so you can keep adding units to a group as the
+//						// old units die off. Groups can also have 0 units (eg. in GG11.rep)
+//						data.clear();
+//						data.addAll(dbUnitIds);
+//						String query = "SELECT unitgroupid FROM unitgroup ";
+//						if (dbUnitIds.size() > 0) {
+//							query += "WHERE ";
+//							for (int i = 0; i < dbUnitIds.size() - 1; i++) {
+//								query += "unitid=? OR ";
+//							}
+//							query += "unitid=? ";
+//						}
+//						data.add(dbUnitIds.size());
+//						query += "GROUP BY unitgroupid HAVING COUNT(unitid)=?";
+//
+//						int amount = 0;
+//						for(long unitId : dbUnitIds) {
+//							amount++;
+//						}
+//
+//						for(UnitGroup ug : unitGroupIds) {
+//							if
+//						}
+//
+//						long groupId = dbc.queryFirstColumn(query, data);
+//
+//						if(unitGroupIds.contains())
+//						// Add the group if it wasn't found
+//						if (groupId == -1) {
+//						    String[] unitgroupData = new String[2];
+//							UnitGroup ug;
+//
+//							for (long unitId : dbUnitIds) {
+//								data.clear();
+//								if (groupId == -1) {
+//									data.add(null);
+//                                    unitgroupData[0] = "null";
+//                                    ug = new UnitGroup(-1, ?);
+//								} else {
+//									data.add(groupId);
+//									unitgroupData[0] = String.valueOf(groupId);
+//									ug = new UnitGroup(groupId, ?);
+//								}
+//								data.add(unitId);
+//								unitgroupData[1] = String.valueOf(unitId);
+//
+//								unitgroupWriter.writeNext(unitgroupData);
+//								unitGroupIds.add(ug);
+//								groupId = dbc.executeInsert("INSERT INTO unitgroup " +
+//										"(unitgroupid, unitid) VALUES (?, ?)", data, false);
+//							}
+//						}
+//						if (groupId == -1) {
+//							// Group can't be made, usually because it's empty
+//							int num = player.actions.indexOf(action);
+//							LOGGER.warning("GroupID was -1 for action #" + num + " of "
+//									+ player.actions.size() + " at frame " + action.frame
+//									+ " with " + dbUnitIds.size() + " units selected");
+//							// Next action will have to reuse previous action's unit group because
+//							// database schema doesn't allow actions without a unit group (in
+//							// practice this never seems to happen, provided all RPActions are
+//							// removed)
+//							continue;
+//						}
+//
+//						// Store the group ID so subsequent actions can refer to it
+//						lastSelectedGroupId = groupId;
+//						continue;
 					}
 					// Any Action containing a ReplayAction other than None here is unexpected
 					if (action.rAction != ReplayActions.None) {
@@ -461,37 +508,61 @@ public class ExtractActions {
 					data.add(action.x);
 					data.add(action.y);
 					data.add(action.delayedAction);
-					long dbActionId = dbc.executeInsert("INSERT INTO action (playerreplayid, " +
-							"frame, unitcommandtypeid, ordertypeid, unitgroupid, targetid, " +
-							"targetx, targety, `delayed`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-							data, true); // Note delayed is a keyword in mysql so needs quotes
-					if (dbActionId == -1) {
-						LOGGER.warning("ActionID result was -1");
-					} else {
-						allDbActionIds.add(dbActionId);
-					}
+
+					String[] actionData = {
+					        String.valueOf(playerReplayId),
+                            String.valueOf(action.frame),
+                            String.valueOf(action.unitCommand.getID()),
+                            String.valueOf(action.order.getID()),
+                            String.valueOf(lastSelectedGroupId),
+                            String.valueOf(action.targetId),
+                            String.valueOf(action.x),
+                            String.valueOf(action.y),
+                            String.valueOf(action.delayedAction)
+                    };
+
+					actionWriter.writeNext(actionData);
+//					long dbActionId = dbc.executeInsert("INSERT INTO action (playerreplayid, " +
+//							"frame, unitcommandtypeid, ordertypeid, unitgroupid, targetid, " +
+//							"targetx, targety, `delayed`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+//							data, true); // Note delayed is a keyword in mysql so needs quotes
+//					if (dbActionId == -1) {
+//						LOGGER.warning("ActionID result was -1");
+//					} else {
+//						allDbActionIds.add(dbActionId);
+//					}
 				} // foreach Action
-				
-				// Remove extra actions
-				dbc.findRemoveExtras("actionid", "action", "playerreplayid=?", playerReplayId,
-						allDbActionIds, maxNumExtrasToRemove);
-				
-				// Remove extra units
+
+				// Remove extra actions  (Doesn't work with CSV)
+				//dbc.findRemoveExtras("actionid", "action", "playerreplayid=?", playerReplayId,
+				//		allDbActionIds, maxNumExtrasToRemove);
+
+				// Remove extra units (Doesn't work with CSV)
 				// (only remove units added by ExtractActions - their unittypeid will be "None")
-				dbc.findRemoveExtras("unitid", "unit", "playerreplayid=? AND unittypeid=228",
-						playerReplayId, allDbUnitIds, maxNumExtrasToRemove);
-				
+				//dbc.findRemoveExtras("unitid", "unit", "playerreplayid=? AND unittypeid=228",
+				//		playerReplayId, allDbUnitIds, maxNumExtrasToRemove);
+
 			} // foreach Player
-			
-			// Remove extra PlayerReplays
-			dbc.findRemoveExtras("playerreplayid", "playerreplay",
-					"replayid=? AND playername<>'Neutral'", replayId, allDbPlayerReplayIds,
-					maxNumExtrasToRemove);
-		} catch (SQLException e) {
-			LOGGER.log(Level.SEVERE, e.getMessage(), e);
+
+			// Remove extra PlayerReplays (Doesn't work with CSV)
+			//dbc.findRemoveExtras("playerreplayid", "playerreplay",
+			//		"replayid=? AND playername<>'Neutral'", replayId, allDbPlayerReplayIds,
+			//		maxNumExtrasToRemove);
+
+            //Close the CSV file writers
+            replayWriter.close();
+            actionWriter.close();
+            playerreplayWriter.close();
+            unitWriter.close();
+//            unitgroupWriter.close();
+
+//		} catch (SQLException e) {
+//			LOGGER.log(Level.SEVERE, e.getMessage(), e);
+		} catch (IOException e) {
+			LOGGER.log(Level.SEVERE, "Unable to write to CSV file,", e);
 		}
 	}
-	
+
 	/**
 	 * Remove unit groups which aren't used by any actions. If less than {@link #maxNumExtrasToRemove}
 	 * are found, this will also delete the rows.
@@ -499,7 +570,7 @@ public class ExtractActions {
 	private void cleanupExtraUnitGroups() {
 		try (DbConnection dbc = new DbConnection();) {
 			List<Object> data = new ArrayList<>();
-			
+
 			String orphanUnitGroups = "unitgroup LEFT JOIN action " +
 					"ON unitgroup.unitgroupid=action.unitgroupid " +
 					"WHERE action.actionid IS NULL";
@@ -525,7 +596,7 @@ public class ExtractActions {
 	/** Convenience class for working with control groups. */
 	private static class ControlGroup {
 		public List<Integer> unitIds;
-		
+
 		public ControlGroup() {
 			unitIds = new ArrayList<Integer>();
 		}

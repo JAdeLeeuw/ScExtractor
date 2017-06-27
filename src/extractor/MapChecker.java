@@ -79,7 +79,7 @@ public class MapChecker {
 		
 		fakeJnibwapi = new JNIBWAPI(null, false);
 		LOGGER.info("Make sure debug mode is NOT active below");
-		dbc = new DbConnection();
+		dbc = new DbConnection(false);
 	}
 	
 	public void start() throws SQLException, IOException {

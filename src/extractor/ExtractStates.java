@@ -144,7 +144,7 @@ public class ExtractStates implements BWAPIEventListener {
 		debugDrawRegionIds = Boolean.parseBoolean(
 				Util.getPropertyNotNull(props, "es_debug_draw_region_ids"));
 		
-		dbc = new DbConnection();
+		dbc = new DbConnection(false);
 		bwapi = new JNIBWAPI(this, true);
 		int[] regionData = { 0, -1000, -1000 };
 		REGION_NONE = new Region(regionData, 0, new int[0]);

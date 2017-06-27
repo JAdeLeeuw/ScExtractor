@@ -1,5 +1,10 @@
 package util;
 
+import extractor.ScriptRunner;
+
+import java.io.BufferedReader;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -30,8 +35,12 @@ public class DbConnection implements AutoCloseable {
 	private Connection con = null;
 	private boolean connected = false;
 	private PreparedStatement getInsertId = null;
+
+	private final boolean firstRun;
 	
-	public DbConnection() throws IOException, SQLException {
+	public DbConnection(boolean firstRun) throws IOException, SQLException {
+		this.firstRun = firstRun;
+
 		Properties props = Util.loadProperties(PROPERTIES_FILENAME);
 		String dbUrl = Util.getPropertyNotNull(props, "db_url");
 		String dbName = Util.getPropertyNotNull(props, "db_name");
@@ -44,15 +53,26 @@ public class DbConnection implements AutoCloseable {
 		}
 
 		con = DriverManager.getConnection(dbUrl, dbUser, dbPw);
+
+		ScriptRunner runner = new ScriptRunner(con, false, false);
+		//Create Database
+		if (firstRun) {
+			runner.runScript(new BufferedReader(new FileReader("createDb.sql")));
+		}
+
 		Statement st = con.createStatement();
 		// Switch to the chosen DB
 		st.executeUpdate("USE " + dbName);
 		// Ensure UTF8 is used (so Korean characters are handled correctly)
 		st.executeUpdate("SET NAMES utf8");
 		st.close();
+
+		if (firstRun) {
+			runner.runScript(new BufferedReader(new FileReader("starcraft.sql")));
+			runner.runScript(new BufferedReader(new FileReader("starcraft-staticdata.sql")));
+		}
 		connected = true;
 		getInsertId = prepare("SELECT last_insert_id()", null);
-			
 	}
 	
 	public boolean isConnected() {
@@ -69,7 +89,12 @@ public class DbConnection implements AutoCloseable {
 		PreparedStatement ps = prepare(sql, data);
   		return ps.executeQuery();
 	}
-	
+
+	public ResultSet executeQuery(String sql) throws SQLException {
+		Statement st = con.createStatement();
+		return st.executeQuery(sql);
+	}
+
 	/** Execute the query and return the value of the first column (usually the ID) as a long. */
 	public long queryFirstColumn(String sql, List<? extends Object> data) throws SQLException {
 		ResultSet rs = executeQuery(sql, data);
@@ -284,11 +309,17 @@ public class DbConnection implements AutoCloseable {
 	public void close() {
 		try {
 			if (con != null) {
+				if(firstRun) {
+					ScriptRunner runner = new ScriptRunner(con, false, false);
+					runner.runScript(new BufferedReader(new FileReader("dropDb.sql")));
+				}
 				con.close();
 			}
 		} catch (SQLException ex) {
 			LOGGER.warning("Exception while closing");
 			LOGGER.log(Level.WARNING, ex.getMessage(), ex);
+		} catch (IOException e) {
+			LOGGER.log(Level.SEVERE, "Exception while running dropDb.sql");
 		}
 		connected = false;
 	}

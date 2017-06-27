@@ -30,7 +30,7 @@ public class DbInterface {
 	private DbInterface() {
 		DbConnection dbc = null;
 		try {
-			dbc = new DbConnection();
+			dbc = new DbConnection(false);
 		} catch (IOException e) {
 			LOGGER.log(Level.SEVERE, "Problem loading properties file", e);
 		} catch (SQLException e) {
